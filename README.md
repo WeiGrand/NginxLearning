@@ -148,6 +148,12 @@ http { # 一个 http 允许多个 server 一个 server 允许多个 location
 }
 ```
 
+开启
+
+```bas
+nginx  -c /etc/nginx/nginx.conf;
+```
+
 重启 `nginx`
 
 ```bash
@@ -158,6 +164,18 @@ systemctl reload nginx.service
 
 ```bash
 systemctl restart nginx.service
+```
+
+或
+
+```bash
+nginx -s reload -c /etc/nginx/nginx.conf
+```
+
+关掉 `nginx`
+
+```bas
+nginx -s stop -c /etc/nginx/nginx.conf
 ```
 
 
@@ -249,7 +267,7 @@ bKit/537.36 (KHTML, like Gecko) Chrome/66.0.3359.181 Safari/537.
 36" "119.129.129.222" "/"
 ```
 
-**如果想要在 `access.log` 中记录访问的 `Cookie`**
+#### 如果想要在 `access.log` 中记录访问的 `Cookie`
 
 修改 `nginx.conf` 在 `log_format` 中加入 `User-Agent` 变量 (`$http_cookie`)
 
@@ -289,4 +307,224 @@ nginx -s reload -c /etc/nginx/nginx.conf
 ```bash
 marking=d3n6cj 172.16.67.0 - - [19/May/2018:12:14:51 +0800] "GET / HTTP/1.0" 200 614 "-" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_13_4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/66.0.3359.181 Safari/537.36" "119.129.129.222" "/"
 ```
+
+
+
+### Nginx 模块
+
+#### Nginx 官方模块
+
+- `http_stub_status_module` 
+
+  | 编译选项                      | 作用                                                    |
+  | ----------------------------- | ------------------------------------------------------- |
+  | —with-http_stub_status_module | Nginx 的客户端状态，用于监控 Nginx 当前<br />的连接状态 |
+
+  | Syntax      | Default | Context          |
+  | ----------- | ------- | ---------------- |
+  | stub_status | --      | server, location |
+
+  修改 `/etc/nginx/conf.d/default.conf`
+
+  ```bash
+  server {
+      ...
+      location /mystatus {
+          stub_status;
+      }
+  }
+  ```
+
+  重启 `nginx` 后访问 `你的域名/mystatus` 可以看到类似信息
+
+  ```
+  Active connections: 1  # 当前活跃的连接数
+  server accepts handled requests # 接受的握手数 处理的连接数 总的请求数 一般 accepts == handled
+   1 1 1 
+  Reading: 0 Writing: 1 Waiting: 0 # 读 写 等待
+  ```
+
+- `http_random_index_module`
+
+  | 编译选项                       | 作用                   |
+  | ------------------------------ | ---------------------- |
+  | —with-http_random_index_module | 目录中选择一个随机主页 |
+
+  | Syntax               | Default          | Context  |
+  | -------------------- | ---------------- | -------- |
+  | random_index on\|off | random_index off | location |
+
+  修改 `/etc/nginx/conf.d/default.conf`
+
+  ```bash
+  server {
+      ...
+      location /mystatus {
+      	# root /usr/share/nginx/html;
+          root /opt/app/code;
+          random_index on;
+          # index index.html index.htm
+      }
+  }
+  ```
+
+  > 不显示 `.` 开头的文件。eg: `.c.html`
+
+- `http_sub_module`
+  | 编译选项              | 作用         |
+  | --------------------- | ------------ |
+  | —with-http_sub_module | HTTP内容替换 |
+
+  | Syntax                                            | Default                      | Context                |
+  | ------------------------------------------------- | ---------------------------- | ---------------------- |
+  | sub_filter string replacement                     | --                           | http, server, location |
+  | sub_filter_last_modified on \| off (主要用于缓存) | sub_filter_last_modified off | http, server, location |
+  | sub_filter_once on \| off (是否只替换第一个)      | sub_filter_once on           | http, server, location |
+
+  修改 `/etc/nginx/conf.d/default.conf`
+
+  ```bash
+  http {
+      ...
+      sub_filter 'h1' 'div'; # 将 h1 替换为 div
+      sub_filter_once off; # 将 once 关掉才能将全部的 h1 都替换掉
+  }
+  ```
+
+
+### Nginx 的请求限制
+
+- 连接频率限制 - `limit_conn_module`
+
+    | Syntax                              | Default | Context                |
+    | ----------------------------------- | ------- | ---------------------- |
+    | limit_conn_zone key zone=name:size; | --      | http                   |
+    | limit_conn zone number;             | --      | http, server, location |
+
+    例子
+
+    ```bash
+    limit_conn_zone $binary_remote_addr zone=conn_zone:1m;
+    
+    server {
+        ...
+        
+        location {
+            ...
+            limit_conn conn_zone 1;
+        }
+    }
+    ```
+
+    
+
+- 请求频率限制 - `limit_req_module`
+
+    | Syntax                                               | Default | Context                |
+    | ---------------------------------------------------- | ------- | ---------------------- |
+    | limit_req_zone key zone=name:size rate=rate;         | --      | http                   |
+    | limit_conn zone=name number [burst=number][nodelay]; | --      | http, server, location |
+
+    例子
+
+    修改 `/etc/nginx/conf.d/default.conf`
+
+    ```bash
+    limit_req_zone $binary_remote_addr zone=req_zone:1m rate=1r/s; # 允许一秒发起一个
+    
+    server {
+        ...
+        
+        locatino / {
+            ...
+            limit_req zone=req_zone
+        }
+    }
+    ```
+
+    然后同时发起两次请求，将会看到一个请求正常返回，而另一个请求则报错，同时查看 `error.log` 也有相应的记录
+
+    ```bash
+    tail -f /var/log/nginx/error.log
+    
+    ...
+    2018/05/19 20:00:26 [error] 17962#17962: *39 limiting reques
+    ts, excess: 0.196 by zone "req_zone", client: 172.16.67.0, s
+    erver: localhost, request: "GET / HTTP/1.0", host: "weigrand
+    .p.imooc.io"
+    ```
+
+
+
+### Nginx 访问控制
+
+- 基于 `IP` (`remote_addr`)的访问控制 - `http_access_module`
+
+    | Syntax                                 | Default | Context                              |
+    | -------------------------------------- | ------- | ------------------------------------ |
+    | allow address \| CIDR \| unix: \| all; | --      | http, server, location, limit_except |
+    | deny address \| CIDR \| unix: \| all;  | --      | http, server, location, limit_except |
+
+    例子
+
+    ```bash
+    server {
+        ...
+        
+        location ~ ^/admin.html { # ~ 代表模式匹配 
+        	...
+            deny 0.0.0.0; # 限制的 ip
+            allow all;
+        }
+    }
+    ```
+
+    然后访问 `你的域名/admin.html` 会返回 `403`
+
+    
+
+    这种方法的局限性是只能通过 `$remote_addr` 控制信任，客户端不一定直接访问服务端，可以使用别的 HTTP 头信息控制，如: `HTTP_X_FORWARDED_FOR`，或者通过HTTP自定义变量将客户端 `remote_addr` 一层一层地传递到服务端
+
+    > http_x_forwarded_fir = Client IP, Proxy(1), Proxy(2)
+
+- 基于 `用户的信任登录` - `http_auth_basic_module` 
+
+    | Syntax                    | Default        | Context                              |
+    | ------------------------- | -------------- | ------------------------------------ |
+    | auth_basic string \| off  | auth_basic off | http, server, location, limit_except |
+    | auth_basic_user_file file | --             | http, server, location, limit_except |
+
+    例子
+
+    首先生成密码配置文件
+
+    ```bash
+    cd /etc/nginx
+    htpasswd -c ./auth_conf 用户名
+    ```
+
+    输入两次密码之后完成
+
+    ```bash
+    more auth_conf
+    用户名:$apr1$tKVOaqxw$74NMfv6iua3xnqpkSGXp.0
+    ```
+
+    修改 `default.conf`
+
+    ```bash
+    server {
+        ...
+        location ~ ^/admin.html {
+            root /opt/app/code;
+            auth_basic "Auth required! input your password!";
+            auth_basic_user_file /etc/nginx/auth_conf;
+            index index.html index.htm;
+        }
+    }
+    ```
+
+    然后访问 `你的域名/admin.html`，将会出现一个弹窗让你填写账号和密码
+
+    
 
