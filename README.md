@@ -526,5 +526,89 @@ marking=d3n6cj 172.16.67.0 - - [19/May/2018:12:14:51 +0800] "GET / HTTP/1.0" 200
 
     然后访问 `你的域名/admin.html`，将会出现一个弹窗让你填写账号和密码
 
+
+
+### 常见的 Nginx 中间架构
+
+- 静态资源WEB服务
+
+- 代理服务
+
+- 负载均衡调度器SLB
+
+- 动态缓存
+
+
+
+#### 静态资源WEB服务
+
+##### **sendfile**
+
+| Syntax             | Default      | Context                                |
+| ------------------ | ------------ | -------------------------------------- |
+| sendfile on \| off | sendfile off | http, server, location, if in location |
+
+##### **tcp_nopush**
+
+sendfile开启的情况下，提高网络包的传输效率
+
+| Syntax               | Default        | Context          |
+| -------------------- | -------------- | ---------------- |
+| tcp_nopush on \| off | tcp_nopush off | server, location |
+
+#####**tcp_nodelay**
+
+keepalive 连接下，提高网络包的传输实时性
+
+| Syntax                | Default         | Context          |
+| --------------------- | --------------- | ---------------- |
+| tcp_nodelay on \| off | tcp_nodelay  on | server, location |
+
+**压缩**
+
+服务端压缩，客户端解压
+
+| Syntax                       | Default               | Context                          |
+| ---------------------------- | --------------------- | -------------------------------- |
+| gzip on \| off               | gzip  on              | server, location, if in location |
+| gzip_comp_level level        | gzip_comp_level 1     | server, location                 |
+| gzip_http_version 1.0 \| 1.1 | gzip_http_version 1.1 | server, location                 |
+
+**例子**
+
+修改 `default.conf`
+
+```bash
+server {
+    ...
+    sendfile on;
     
+    location ~ .*\.(jpg|gif|png)$ {
+    	# gzip 配置
+    	gzip on;
+    	gzip_http_version 1.1;
+    	gzip_comp_level 2;
+    	gzip_types text/plain application/javascript application/x-javascript text/css application/xml text/javascript application/x-httpd-php image/jpeg image/gif image/png;
+    	
+        root /opt/app/code/images;
+    }
+    
+    location ~ .*\.(txt|xml)$ {
+    	gzip on;
+    	gzip_http_version 1.1;
+    	gzip_comp_level 1;
+    	gzip_types text/plain application/javascript application/x-javascript text/css application/xml text/javascript application/x-httpd-php image/jpeg image/gif image/png;
+    
+        root /opt/app/code/doc;
+    }
+    
+    location ~ ^/download {
+        gzip_static on; # 会预读 .gz 文件
+        tcp_nopush on;
+        root /opt/app/code;
+    }
+}
+```
+
+在响应头可以看到 `Content-Encoding: gzip` 代表设置成功
 
