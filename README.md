@@ -627,6 +627,7 @@ server {
 **expires**
 
 添加 `Cache-Control`、`Expires` 头
+
 | Syntax                       | Default      | Context                                |
 | ---------------------------- | ------------ | -------------------------------------- |
 | expires [modified] time;     | expires off; | http, server, location, if in location |
@@ -829,4 +830,126 @@ server {
 
 
 #### 负载均衡
+
+> **负载平衡**（Load balancing）是一种计算机技术，用来在多个计算机（计算机集群）、网络连接、CPU、磁盘驱动器或其他资源中分配负载，以达到最优化资源使用、最大化吞吐率、最小化响应时间、同时避免过载的目的。
+
+使用到了 `proxy_pass` 和 `upstream`
+
+| Syntax              | Default | Context |
+| ------------------- | ------- | ------- |
+| upstream name { … } | --      | http    |
+
+**简单的例子**
+
+```bash
+http {
+    ...
+    
+    upstream weigrand {
+        server 网站的IP：8001；
+        server 网站的IP：8002；
+        server 网站的IP：8003；
+    }
+    
+    location / {
+        proxy_pass http://weigrand;
+        ...
+    }
+}
+```
+
+然后访问 `你的网站` nginx 会依次代理(轮询)到 `8001`、`8002`、`8003` 端口
+
+**upstream server的参数**
+
+| 参数         | 意义                                  |
+| ------------ | ------------------------------------- |
+| down         | 当前的 server 暂时不参与负载均衡      |
+| backup       | 预留的备份服务器                      |
+| max_fails    | 允许请求失败的次数                    |
+| fail_timeout | 经过 max_fails 失败后，服务暂停的时间 |
+| max_conns    | 限制最大的接收的连接数                |
+
+**带参数的例子**
+
+```bash
+http {
+    ...
+    
+    upstream weigrand {
+        server 网站的IP：8001 down；
+        server 网站的IP：8002 backup；
+        server 网站的IP：8003 max_fails=1 fail_timeout=10s；
+    }
+}
+```
+
+然后可以看到只有 `8003` 端口可以被访问，而如果把 `8003` 端口的服务关掉的话，再次访问将访问 `8002` 端口
+
+
+
+##### **调度算法**
+
+| 术语          | 解释                                   |
+| ------------- | -------------------------------------- |
+| 轮询（默认）  | 按时间顺序逐一分配到不同的服务器       |
+| 加权轮询      | weight值越大，分配到的访问几率越高     |
+| ip_hash       | 根据访问 `IP` 的 `hash` 结果分配       |
+| least_conn    | 最少连接数，哪个机器连接数少就分发到哪 |
+| url_hash      | 根据访问的 `URL` 的 `hash` 结果分配    |
+| hash 关键数值 | `hash` 自定义的 `key`                  |
+
+**加权轮询例子**
+
+```bash
+http {
+    ...
+    
+    upstream weigrand {
+        server 网站的IP：8001；
+        server 网站的IP：8002 weight=8；
+        server 网站的IP：8003；
+    }
+}
+```
+
+这样每 `10个请求` 就会有 `8个` 命中 `8002` 端口
+
+
+
+**ip_hash例子**
+
+```bash
+http {
+    ...
+    
+    upstream weigrand {
+    	ip_hash;
+       	server 网站的IP：8001；
+       	server 网站的IP：8002；
+       	server 网站的IP：8003；
+    }
+}
+```
+
+这样来自同一个 `IP` 的固定访问一个服务器
+
+
+
+**hash 关键数值例子**
+
+```bash
+http {
+    ...
+    
+    upstream weigrand {
+    	hash $request_uri;
+       	server 网站的IP：8001；
+       	server 网站的IP：8002；
+       	server 网站的IP：8003；
+    }
+}
+```
+
+访问 `你的域名/xxx` 将被分配到同一个台服务器上
 
