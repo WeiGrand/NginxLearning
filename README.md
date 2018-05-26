@@ -612,3 +612,221 @@ server {
 
 在响应头可以看到 `Content-Encoding: gzip` 代表设置成功
 
+
+
+#### 浏览器缓存
+
+**校验过期机制**
+
+![](http://olkiij9c9.bkt.clouddn.com/%E6%B5%8F%E8%A7%88%E5%99%A8%E7%BC%93%E5%AD%98.jpg)
+
+> **Etag 和 Last-Modified 实例**
+>
+> HTTP/1.1 200 OK Server: nginx Date: Sat, 26 May 2018 05:36:54 GMT Content-Type: text/html Content-Length: 174 Connection: keep-alive marking: d3n6cj Set-Cookie: marking=d3n6cj; path=/ month: 05 **Last-Modified: Sat, 26 May 2018 05:32:21 GMT ETag: "5b08f165-ae" Accept-Ranges: bytes**
+
+**expires**
+
+添加 `Cache-Control`、`Expires` 头
+| Syntax                       | Default      | Context                                |
+| ---------------------------- | ------------ | -------------------------------------- |
+| expires [modified] time;     | expires off; | http, server, location, if in location |
+| expires epoch \| max \| off; | expires off; | http, server, location, if in location |
+
+**例子**
+
+```bash
+server {
+    ...
+    
+    location ~ .*\.(htm|html)$ {
+        expires 24h;
+        ...
+    }
+}
+```
+
+然后请求 `htm | html` 查看 `响应头` 可以看到新增的 `Cache-Control` 和 `Expires`
+
+```
+HTTP/1.1 304 Not Modified
+Server: nginx
+Date: Sat, 26 May 2018 05:44:09 GMT
+Content-Type: text/html
+Connection: keep-alive
+marking: d3n6cj
+Set-Cookie: marking=d3n6cj; path=/
+month: 05
+Last-Modified: Sat, 26 May 2018 05:32:21 GMT
+ETag: "5b08f165-ae"
+
+
+Expires: Sun, 27 May 2018 05:44:09 GMT
+Cache-Control: max-age=86400
+```
+
+
+
+#### 跨域访问
+
+| Syntax                          | Default | Context                          |
+| ------------------------------- | ------- | -------------------------------- |
+| add_header name value [always]; | --      | server, location, if in location |
+
+**例子**
+
+```bash
+server {
+    ...
+    
+    location ~ .*\.(htm|html)$ {
+        #add_header Access-Control-Allow-Origin http://www.taobao.com;
+        #add_header Access-Control-Allow-Methods GET,POST,PUT,DELETE,OPTIONS;
+        ...
+    } 
+}
+```
+
+
+
+#### 防盗链
+
+设置思路：区别哪些请求是非正常的用户请求
+
+**基于 `http_refer` 配置防盗链**
+
+如防止 `http:taobao.com` 的请求
+
+```bash
+server {
+    ...
+    
+    location ~ .*\.(jpg|gif|png)$ {
+        ...
+ 
+        valid_referers none blocked http://taobao.com 你的域名/xxx.png;
+        if ($invalid_referer) {
+            return 403;
+        }
+    }
+}
+```
+
+```bash
+curl -I "你的域名/xxx.png"
+
+HTTP/1.1 200 OK
+Server: nginx
+Date: Sat, 26 May 2018 06:17:55 GMT
+Content-Type: image/png
+Content-Length: 244044
+Connection: keep-alive
+marking: d3n6cj
+Set-Cookie: marking=d3n6cj; path=/
+month: 05
+Last-Modified: Sat, 26 May 2018 06:08:58 GMT
+ETag: "5b08f9fa-3b94c"
+Accept-Ranges: bytes
+```
+
+如果 `refer` 是淘宝，则返回 403
+
+```bash
+curl -e "http://taobao.com" -I "http://weigrand.p.imooc.io/wei.png"
+
+HTTP/1.1 403 Forbidden
+Server: nginx
+Date: Sat, 26 May 2018 06:25:17 GMT
+Content-Type: text/html
+Content-Length: 169
+Connection: keep-alive
+marking: d3n6cj
+Set-Cookie: marking=d3n6cj; path=/
+month: 05
+```
+
+
+
+#### 代理服务
+
+> 正向代理的对象是客户端
+>
+> 反向代理的对象是服务端
+
+| Syntax                                                       | Default                                                      | Context                                |
+| ------------------------------------------------------------ | ------------------------------------------------------------ | -------------------------------------- |
+| proxy_pass URL                                               | --                                                           | location, if in location, limit_except |
+| proxy_buffering on \| off<br /> (把一个请求所有信息收集完再返回给客户端，减少 IO 损耗) | proxy_buffering on                                           | server, location                       |
+| proxy_set_header field value;<br />(设置头信息)              | proxy_set header Host $proxy_host;<br />proxy_set_header Connection close | http, server, location                 |
+| proxy_connect_timeout time;<br />(超时时间)                  | proxy_connect_timeout 60s;                                   | http, server, location                 |
+
+**例子**
+
+```bash
+# in proxy_conf
+proxy_redirect default;
+
+proxy_set_header HOST $http_host;
+proxy_set_header X_Real-IP $remore_addr; # 用户访问限制
+
+proxy_connect_timeout 30;
+proxy_send_timeout 60;
+proxy_read_timeout 60;
+
+proxy_buffer_size 32k;
+proxy_buffering on;
+proxy_buffers 4 128k;
+proxy_busy_buffers_size 256k;
+proxy_max_temp_file_size 256;
+```
+
+
+
+```bash
+server {
+    ...
+    
+    location / {
+        proxy_pass http://127.0.0.1: 8080;
+        
+        include proxy_conf;
+    }
+}
+```
+
+
+
+**正向例子**
+
+```bash
+server {
+    ...
+    
+    resolver 8.8.8.8; # DNS server
+    location / {
+        proxy_pass http://$http_host$request_uri;
+    }
+}
+```
+
+这样设置相当于别人请求你的服务器，然后你会代理他们的请求去请求他们想要请求的资源`http://$http_host$request_uri` 再返回给他们，相当于「科学上网」
+
+
+
+**反向例子**
+
+```bash
+server {
+    ...
+    
+    location ~ /xxx.html$ {
+        proxy_pass http://127.0.0.1:8080;
+    }
+}
+```
+
+配置完成后，`你的域名/xxx.html` 将被代理到 `http://127.0.0.1:8080/xxx.html` 上
+
+
+
+#### 负载均衡
+
