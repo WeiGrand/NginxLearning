@@ -953,3 +953,100 @@ http {
 
 访问 `你的域名/xxx` 将被分配到同一个台服务器上
 
+
+
+#### 缓存服务（代理缓存）
+
+**proxy_cache**
+
+| Syntax                         | Default                                           | Context                |
+| ------------------------------ | ------------------------------------------------- | ---------------------- |
+| proxy_cache zone \| off        | proxy_cache off;                                  | http, server, location |
+| proxy_cache_valid [code…] time | --                                                | http, server, location |
+| proxy_cache_key string         | proxy_cache_key $scheme\$proxy_host\$request_uri; | http, server, location |
+
+**例子**
+
+```bash
+http {
+    ...
+    
+    proxy_cache_path /opt/app/cache levels=1:2 keys_zone=weigrand_cache:10m max_size=10g inactive=60m use_temp_path=off;
+    
+    location / {
+        proxy_cache weigrand_cache;
+        proxy_pass http://weigrand;
+        proxy_cache_valid 200 304 12h;
+        proxy_cache_valid any 10m;
+        proxy_cache_key $host$uri$is_args$args;
+        add_header  Nginx-Cache "$upstream_cache_status";
+
+        proxy_next_upstream error timeout invalid_header http_500 http_502 http_503 http_504;
+        include proxy_params;
+    }
+}
+```
+
+然后访问一下 `你的网站` 之后 查看 `cache` 目录，可以看到缓存文件已经生成
+
+```bash
+cat /opt/app/cache/c/92/db6844138dd62ac4af0a5fe6c908592c
+
+"5b092000-a9"	
+KEY: 域名/url2.html
+HTTP/1.1 200 OK
+Server: nginx/1.12.1
+Date: Sat, 26 May 2018 09:19:10 GMT
+Content-Type: text/html
+Content-Length: 169
+Last-Modified: Sat, 26 May 2018 08:51:12 GMT
+Connection: close
+ETag: "5b092000-a9"
+Accept-Ranges: bytes
+
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Cache</title>
+</head>
+<body style="background-color:yellow;">
+    <h1>cache test<h1>
+</body>
+</html>
+```
+
+
+
+**让部分页面不缓存**
+
+| Syntax                   | Default | Context                |
+| ------------------------ | ------- | ---------------------- |
+| proxy_no_cache string …; | --      | http, server, location |
+
+**例子**
+
+```bash
+server {
+    ...
+    
+    if ($request_uri ~ ^/(login|register|password\/reset)) {
+		set $cookie_nocache 1;
+    }
+    
+    location / {
+    	...
+    	proxy_no_cache $cookie_nocache;
+    }
+}
+```
+
+`login|register|password\/reset` 这些页面将不被缓存
+
+
+
+**大文件分片请求**
+
+| Syntax      | Default  | Context                |
+| ----------- | -------- | ---------------------- |
+| slice size; | slice 0; | http, server, location |
+
