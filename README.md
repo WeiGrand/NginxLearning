@@ -1156,3 +1156,217 @@ server {
 
 
 
+#### secure_link_module
+
+- 制定并允许检查请求的链接的真实性以及保护资源免遭未经授权的访问
+- 限制链接生效周期
+
+
+| Syntax                     | Default | Context                |
+| -------------------------- | ------- | ---------------------- |
+| secure_link expression     | --      | http, server, location |
+| secure_link_md5 expression | --      | http, server, location |
+
+**例子**
+
+```bash
+server {
+    ...
+    location / {
+        secure_link $arg_md5,$arg_expiresl; # 对应 url?md=xxx&expires=xxx
+        secure_link_md5 "$secure_link_expires$uri test";
+        
+        if ($secure_link = "") {
+            return 403;
+        }
+        
+        if ($secure_link = "0") {
+            return 410;
+        }
+    }
+}
+```
+
+对应的加密操作 `md5url.sh`
+
+```sh
+#!/bin/sh
+
+servername="你的域名"
+download_file="/download/file.img"
+time_num=$(date -d "2019-01-01 00:00:00" +%s)
+secret_num="test"
+
+res=$(echo -n "${time_num}${download_file} ${secret_num}"|openssl md5 -binary | openssl base64 | tr +/ -_ | tr -d =)
+
+echo "http://${servername}${download_file}?md5=${res}&expires=${time_num}"
+```
+
+
+
+#### geoid_module
+
+基于 `IP地址` 匹配 `MaxMind GeoIP`，读取 `IP` 所在地域信息
+
+- 区别国内外作 `HTTP` 访问规则
+- 区别国内城市区域作 `HTTP` 访问规则
+
+
+
+**例子**
+
+首先用在 `/etc/nginx/nginx.conf` 中引入模块
+
+```bash
+load_module "modules/ngx_http_geoip_module.so";
+load_module "modules/ngx_stream_geoip_module.so";
+...
+```
+
+```bash
+# 读取 geo 数据
+geoip_country /etc/nginx/geoip/GeoIP.dat;
+geoip_city /etc/nginx/geoip/GeoLiteCity.dat;
+
+server {
+    ...
+    location / {
+        if ($geoip_country_code != CN) { # 阻止国外的访问
+            return 403;
+        }
+        ...
+    }
+
+   location /ip { # 查看自己的 ip 信息
+        default_type text/plain;
+        return 200 "$remote_addr $geoip_country_name $geoip_country_code $geoip_city";
+   }
+}
+```
+
+
+
+#### HTTPS 服务
+
+**生成密钥和CA证书**
+
+1. 生成 key 密钥
+2. 生成证书签名请求文件（csr文件）
+3. 生成证书签名文件（CA文件）
+
+
+
+**例子**
+
+1. 生成 key 密钥
+
+   ```bash
+   cd /etc/nginx
+   mkdir ssl_key
+   cd ssl_key
+   
+   openssl genrsa -idea -out test.key 1024 # test.key 为生成的文件，1024 位加密的位数
+   
+   # 需要输入密码
+   Enter pass phrase for test.key:
+   
+   # 输入刚才的密码
+   Verifying - Enter pass phrase for test.key:
+   ```
+
+2. 生成证书签名请求文件
+
+   ```bash
+   openssl req -new -key test.key -out test.csr
+   
+   # 输入刚才的密码
+   Enter pass phrase for test.key:
+   
+   # 输入相关的信息
+   You are about to be asked to enter information that will be incorporated
+   into your certificate request.
+   What you are about to enter is what is called a Distinguished Name or a DN.
+   There are quite a few fields but you can leave some blank
+   For some fields there will be a default value,
+   If you enter '.', the field will be left blank.
+   -----
+   Country Name (2 letter code) [XX]:CN
+   State or Province Name (full name) []:guangdong
+   Locality Name (eg, city) [Default City]:guangzhou
+   Organization Name (eg, company) [Default Company Ltd]:company
+   Organizational Unit Name (eg, section) []:unit
+   Common Name (eg, your name or your server's hostname) []:yuming.com
+   Email Address []: email@address.com
+   
+   Please enter the following 'extra' attributes
+   to be sent with your certificate request
+   A challenge password []: # 可以为空
+   An optional company name []:company
+   ```
+
+3. 生成证书签名文件
+
+   ```bash
+   openssl x509 -req -days 3650 -in test.csr -signkey test.key -out test.crt # -days 为过期时间，默认为一个月
+   
+   # 输入刚才的密码
+   Enter pass phrase for test.key:
+   
+   # 完成之后
+   ls
+   test.crt  test.csr  test.key
+   ```
+
+   > **苹果要求的证书**
+   >
+   > 1. 服务器所有的连接使用 `TLS1.2` 以上版本（openssl 1.0.2）
+   >
+   > 2. HTTPS证书必须使用 `SHA256` 以上哈希算法签名
+   >
+   > 3. HTTPS证书必须使用 `RSA 2048位` 或 `ECC 256位` 以上公钥算法
+   >
+   >    ```bash
+   >    openssl req -days 36500 -x509 -sha256 -nodes -newkey rsa:2048 -keyout apple.key -out apple.crt
+   >    ```
+
+**Nginx 配置语法**
+
+| Syntax                   | Default | Context      |
+| ------------------------ | ------- | ------------ |
+| ssl on \| off            | ssl off | http, server |
+| ssl_certificate file     | --      | http, server |
+| ssl_certificate_key file | --      | http, server |
+
+**例子**
+
+```bash
+server {
+	listen       443;
+	server_name  localhost;
+	ssl on;
+	ssl_certificate /etc/nginx/ssl_key/test.crt;
+	ssl_certificate_key /etc/nginx/ssl_key/test.key;
+	...
+}
+```
+
+
+
+**优化**
+
+1. 激活 `keepalive` 长连接
+2. 设置 `ssl session` 缓存
+
+
+
+**例子**
+
+```bash
+server {
+	keepalive_timeout 100;
+	ssl_session_cache shared:SSL:10m; # 共享的缓存
+	ssl_session_timeout 10m;
+	...
+}
+```
+
