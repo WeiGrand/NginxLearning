@@ -888,7 +888,7 @@ http {
 
 
 
-##### **调度算法**
+**调度算法**
 
 | 术语          | 解释                                   |
 | ------------- | -------------------------------------- |
@@ -1049,4 +1049,110 @@ server {
 | Syntax      | Default  | Context                |
 | ----------- | -------- | ---------------------- |
 | slice size; | slice 0; | http, server, location |
+
+#### 动静分离
+
+通过中间件将 `动态请求` 和 `静态请求` 分离
+
+**例子**
+
+```bash
+http {
+    ...
+    upstream php_api {
+        server 127.0.0.1:8000;
+    }
+    
+    server {
+        ...
+        location ~ \.php$ {
+            proxy_pass http://php_api;
+            ...
+        }
+    }
+}
+```
+
+
+
+#### Rewrite
+
+实现 `url` 重写以及重定向
+
+- URL访问跳转
+- SEO优化
+- 维护
+- 安全（伪静态）
+
+| Syntax                            | Default | Context              |
+| --------------------------------- | ------- | -------------------- |
+| rewrite regex replacement [flag]; | --      | server, location, if |
+
+**flag**
+
+| 取值      | 意义                                                         |
+| --------- | ------------------------------------------------------------ |
+| last      | 停止 `rewrite` 检测，会重新发起一次 对 `replacement` 的请求  |
+| break     | 停止 `rewrite` 检测，查找服务器中是否有 `replacement` 的文件，不发起请求 |
+| redirect  | 返回 `302` 临时重定向，地址栏会显示跳转后的地址              |
+| permanent | 返回 `301` 永久重定向，地址栏会显示跳转后的地址              |
+
+**优先级**
+
+1. server
+2. location
+
+
+
+**例子**
+
+```bash
+server {
+    ...
+    root /opt/app/code;
+    
+    # break last redirect permanent 对比
+    location ~ ^/break {
+        rewrite ^/break /test/ break;
+    }
+
+    location ~ ^/last {
+         rewrite ^/last /test/ last;
+    }
+    
+    location ~ ^/redirect {
+         rewrite ^/redirect /test/ redirect;
+    }
+    
+    location ~ ^/permanent {
+         rewrite ^/permanent /test/ permanent;
+    }
+    
+    # 一般场景
+    location / {
+        rewrite ^/(\d+)-(\d+)-(\d+).html$ /$1/$2/$3.html break;
+        
+        if ($http_user_agent ~* Chrome) {
+            rewrite ^/nginx url redirect;
+        }
+        
+        if (!-f $request_filename) {
+            rewrite ^/(.*)$ url/$1 redirect;
+        }
+    }
+    
+    location /test/ {
+       default_type application/json;
+       return 200 '{"status":"success"}';
+    }
+}
+```
+
+当访问 `/break/` 的时候会查找 `/opt/app/code/test/` 是否有对应的文件，如果没有则返回 `404`，而 `/last/` 会向 `/test/` 发起一个请求并返回响应内容
+
+`redirect` 会有两次请求，第一次由 `/redirect/` 返回 `302 Moved Temporarily`，第二次由 `/test/` 返回 `200 OK`
+
+`permanent` 和 `redirect` 的区别是，当 `nginx` 关掉的时候，`permanent` 仍会重定向
+
+
 
